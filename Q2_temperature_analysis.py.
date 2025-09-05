@@ -1,0 +1,129 @@
+import os
+import pandas as pd
+import numpy as np
+
+def get_season(month):
+    # Australian seasons
+    if month in [12, 1, 2]:
+        return 'Summer'
+    elif month in [3, 4, 5]:
+        return 'Autumn'
+    elif month in [6, 7, 8]:
+        return 'Winter'
+    elif month in [9, 10, 11]:
+        return 'Spring'
+
+def seasonal_average(temperatures_folder):
+    season_temps = {'Summer': [], 'Autumn': [], 'Winter': [], 'Spring': []}
+
+    for filename in os.listdir(temperatures_folder):
+        if filename.endswith('.csv'):
+            filepath = os.path.join(temperatures_folder, filename)
+            df = pd.read_csv(filepath, parse_dates=['Date'])
+
+            # Drop NaN values in temperature column(s)
+            for col in df.columns:
+                if col.lower() != 'date':
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            df = df.dropna()
+
+            for index, row in df.iterrows():
+                season = get_season(row['Date'].month)
+                # Add all station temperatures for this row
+                temps = [row[col] for col in df.columns if col.lower() != 'date' and not pd.isna(row[col])]
+                season_temps[season].extend(temps)
+
+    avg_season_temps = {}
+    for season, temps in season_temps.items():
+        if temps:
+            avg_season_temps[season] = round(np.mean(temps), 1)
+        else:
+            avg_season_temps[season] = None
+
+    with open('average_temp.txt', 'w') as f:
+        for season, avg_temp in avg_season_temps.items():
+            if avg_temp is not None:
+                f.write(f"{season}: {avg_temp}°C\n")
+            else:
+                f.write(f"{season}: No data\n")
+
+def temperature_range(temperatures_folder):
+    station_max = {}
+    station_min = {}
+
+    for filename in os.listdir(temperatures_folder):
+        if filename.endswith('.csv'):
+            filepath = os.path.join(temperatures_folder, filename)
+            df = pd.read_csv(filepath, parse_dates=['Date'])
+
+            # Consider all station columns except 'Date'
+            for col in df.columns:
+                if col.lower() != 'date':
+                    temps = pd.to_numeric(df[col], errors='coerce').dropna()
+                    if not temps.empty:
+                        current_max = station_max.get(col, -np.inf)
+                        current_min = station_min.get(col, np.inf)
+                        station_max[col] = max(current_max, temps.max())
+                        station_min[col] = min(current_min, temps.min())
+
+    # Find largest range
+    ranges = {station: station_max[station] - station_min[station] for station in station_max}
+    if not ranges:
+        result_lines = ["No temperature data found."]
+    else:
+        max_range = max(ranges.values())
+        stations_with_max_range = [s for s, r in ranges.items() if r == max_range]
+
+        result_lines = []
+        for s in stations_with_max_range:
+            result_lines.append(f"Station {s}: Range {round(max_range, 1)}°C (Max: {round(station_max[s], 1)}°C, Min: {round(station_min[s], 1)}°C)")
+
+    with open('largest_temp_range_station.txt', 'w') as f:
+        for line in result_lines:
+            f.write(line + "\n")
+
+def temperature_stability(temperatures_folder):
+    station_stddev = {}
+
+    for filename in os.listdir(temperatures_folder):
+        if filename.endswith('.csv'):
+            filepath = os.path.join(temperatures_folder, filename)
+            df = pd.read_csv(filepath, parse_dates=['Date'])
+
+            for col in df.columns:
+                if col.lower() != 'date':
+                    temps = pd.to_numeric(df[col], errors='coerce').dropna()
+                    if not temps.empty:
+                        current_vals = station_stddev.get(col, [])
+                        current_vals.extend(temps.tolist())
+                        station_stddev[col] = current_vals
+
+    # Calculate stddev for each station
+    stddevs = {station: round(np.std(values), 1) for station, values in station_stddev.items()}
+
+    if not stddevs:
+        most_stable = ["No temperature data found."]
+        most_variable = ["No temperature data found."]
+    else:
+        min_std = min(stddevs.values())
+        max_std = max(stddevs.values())
+
+        most_stable_stations = [s for s, std in stddevs.items() if std == min_std]
+        most_variable_stations = [s for s, std in stddevs.items() if std == max_std]
+
+        most_stable = [f"Most Stable: Station {s}: StdDev {min_std}°C" for s in most_stable_stations]
+        most_variable = [f"Most Variable: Station {s}: StdDev {max_std}°C" for s in most_variable_stations]
+
+    with open('temperature_stability_stations.txt', 'w') as f:
+        for line in most_stable + most_variable:
+            f.write(line + "\n")
+
+def main():
+    folder = "temperatures"
+    seasonal_average(folder)
+    temperature_range(folder)
+    temperature_stability(folder)
+
+if __name__ == "__main__":
+    main()
